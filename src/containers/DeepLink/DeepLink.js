@@ -15,8 +15,9 @@ import {
   extractVerusPayInvoiceSig,
   getInfo
 } from '../../utils/api/channels/vrpc/callCreators';
-import { LOGIN_CONSENT_INFO, VERUSPAY_INVOICE_INFO } from '../../utils/constants/deeplink';
+import { LOGIN_CONSENT_INFO, VERUSPAY_INVOICE_INFO, ENCRYPTION_REQUEST_INFO } from '../../utils/constants/deeplink';
 import LoginRequestInfo from './LoginRequestInfo/LoginRequestInfo';
+import EncryptionRequestInfo from './EncryptionRequestInfo/EncryptionRequestInfo';
 import { getCurrency, getIdentity } from '../../utils/api/channels/verusid/callCreators';
 import { convertFqnToDisplayFormat } from '../../utils/fullyqualifiedname';
 import { resetDeeplinkData } from '../../actions/actionCreators';
@@ -241,6 +242,42 @@ const DeepLink = (props) => {
             cancel();
           }
           break;
+        case primitives.APP_ENCRYPTION_REQUEST_VDXF_KEY.vdxfid:
+          const encRequest = primitives.AppEncryptionRequestDetails.fromJson(deeplinkData)
+
+          if (!encRequest.isValid()) {
+            throw new Error("Invalid encryption request")
+          }
+
+          // Determine if testnet or mainnet
+          const isTestnet = encRequest.flags.toNumber() & 0x01; // Assuming bit 0 indicates testnet
+          coinObj = CoinDirectory.getBasicCoinObj(isTestnet ? 'VRSCTEST' : 'VRSC')
+
+          // Get redirect info if available
+          const redirectInfo = deeplinkData.redirectInfo || null
+
+          // Try to get requester identity if available
+          let requestedBy = 'An application';
+          if (encRequest.fromAddress) {
+            try {
+              VrpcProvider.initEndpoint(coinObj.system_id, coinObj.vrpc_endpoints[0])
+              const fromIdentity = await getIdentity(coinObj.system_id, encRequest.fromAddress.getAddressString())
+              if (!fromIdentity.error) {
+                requestedBy = convertFqnToDisplayFormat(fromIdentity.result.fullyqualifiedname)
+              }
+            } catch (e) {
+              console.warn('Could not resolve requester identity:', e)
+            }
+          }
+
+          setDisplayProps({
+            deeplinkData,
+            coinObj,
+            requestedBy,
+            redirectInfo
+          })
+          setDisplayKey(ENCRYPTION_REQUEST_INFO)
+          break;
         default:
           createAlert('Unsupported', 'Unsupported request');
           cancel();
@@ -269,6 +306,14 @@ const DeepLink = (props) => {
     ),
     [VERUSPAY_INVOICE_INFO]: () => (
       <InvoiceInfo
+        {...displayProps}
+        cancel={cancel}
+        setLoading={setLoading}
+        navigation={props.navigation}
+      />
+    ),
+    [ENCRYPTION_REQUEST_INFO]: () => (
+      <EncryptionRequestInfo
         {...displayProps}
         cancel={cancel}
         setLoading={setLoading}
